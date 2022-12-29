@@ -1,0 +1,150 @@
+---
+title: "Air polution"
+output: html_notebook
+---
+```{r}
+library(readxl)
+library(tidyverse)
+library(sf)
+library(ggplot2)
+library(dplyr)
+library(readxl)
+```
+#reading in the datasets that will be used in this project. 
+
+```{r}
+air_pollution_us <- read.csv("data/pollution_us_2000_2016.csv")
+```
+
+```{r}
+air_pollution_global <- read.csv("data/data.csv")
+```
+
+#the following datasets contain information of total population Nox and PM globally between 2003 - 2018
+
+```{r}
+population <- read_excel("data/aqdh-country-trends-major-air-pollutants-2003-2018.xlsx", sheet = "Population (GPWv4.11)" )
+NOx_Population <- read_excel("data/aqdh-country-trends-major-air-pollutants-2003-2018.xlsx", sheet = "NOx Population-Weighted (ppm)")
+PM_Pop <- read_excel("data/aqdh-country-trends-major-air-pollutants-2003-2018.xlsx", sheet = "PM Pop.-Weighted (kg m^-3)")
+```
+
+#Droping duplicates in the dataframes. 
+
+```{r}
+NOx_Population
+```
+
+```{r}
+population <- population %>% filter(!duplicated(.))
+```
+
+```{r}
+NOx_Population  <- NOx_Population %>% filter(!duplicated(.))
+```
+
+```{r}
+PM_Pop  <- PM_Pop %>% filter(!duplicated(.))
+```
+
+#Reshaping the dataframes into a large table
+
+```{r}
+population <- population%>%
+ pivot_longer(cols = c('2003', '2004', '2005', '2006', '2007', '2008', '2009', '2010', '2011', '2012', '2013', '2014', '2015', '2016', '2017', '2018'),
+               names_to = 'year',
+               values_to = 'population')
+
+```
+
+
+```{r}
+NOx_Population <- NOx_Population%>%
+  pivot_longer(cols = c('2003', '2004', '2005', '2006', '2007', '2008', '2009', '2010', '2011', '2012', '2013', '2014', '2015', '2016', '2017', '2018'),
+               names_to = 'year',
+               values_to = 'nox')
+
+```
+
+```{r}
+PM_Pop <- PM_Pop%>%
+  pivot_longer(cols = c('2003', '2004', '2005', '2006', '2007', '2008', '2009', '2010', '2011', '2012', '2013', '2014', '2015', '2016', '2017', '2018'),
+               names_to = 'year',
+               values_to = 'PM')
+
+```
+
+#Merging the datasets into a large dataframe. 
+```{r}
+all_population <- population %>%
+  full_join(NOx_Population, by = c("country", "year"))%>%
+  full_join(PM_Pop, by = c("country", "year"))
+all_population
+```
+
+#Dropping extra information that is not needed.
+```{r}
+air_pollution_global
+```
+#Dropping duplicates 
+```{r}
+air_pollution_global <- air_pollution_global%>% filter(!duplicated(.))
+```
+
+```{r}
+air_pollution_filtered_gbl <- subset(air_pollution_global, select = -c(IndicatorCode, ValueType, 
+Location.type, Period.type, IsLatestYear, Dim1.type, Dim1ValueCode, Dim2.type, Dim2ValueCode, Dim3.type, Dim3, Dim3ValueCode, DataSourceDimValueCode, DataSource, FactValueNumericPrefix, FactValueUoM, FactValueNumericLowPrefix, FactValueNumericLow, FactValueNumericHighPrefix, FactValueNumericHigh, FactValueTranslationID, FactComments, Language, DateModified))
+air_pollution_filtered_gbl
+```
+#Renaming columns in the Global Dataframe.
+```{r}
+air_pollution_filtered_gbl <- air_pollution_filtered_gbl%>%
+  transmute(
+    continent = ParentLocation,
+    country = Location,
+    year = Period,
+    sex = Dim1, 
+    cause_of_death = Dim2,
+    death_rates = FactValueNumeric
+  )
+
+air_pollution_filtered_gbl
+
+```  
+
+#filtering out the rows with "Total" in them. 
+```{r}
+air_pollution_filtered_gbl <- air_pollution_filtered_gbl%>%
+  filter(cause_of_death != "Total")
+``` 
+
+
+#cheching the type of death causes in the dataframe
+
+```{r}
+table(air_pollution_filtered_gbl['cause_of_death'])
+```
+```{r}
+summary(air_pollution_filtered_gbl[ , c('death_rates')])
+```
+
+
+#Top 10 countries with the most deaths caused by air pollution.
+```{r}
+data_new2 <- air_pollution_filtered_gbl %>%                                     
+  # Top N highest values by group
+  arrange(desc(death_rates))%>% 
+  group_by() %>%
+  slice(1:10)
+data_new2
+```
+ 
+```{r}
+model_gbl <- lm(death_rates ~ continent, data= air_pollution_filtered_gbl)
+summary(model_gbl)
+```
+
+```{r}
+air_pollution_us 
+```
+
+
