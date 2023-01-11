@@ -3,7 +3,6 @@ title: "Air polution"
 output: html_notebook
 ---
 ```{r}
-library(readxl)
 library(tidyverse)
 library(sf)
 library(ggplot2)
@@ -12,11 +11,42 @@ library(readxl)
 library(hrbrthemes)
 library(viridis)
 library(forcats)
+library(data.table)
+library(scales)
+library(leaflet)
 ```
-#reading in the datasets that will be used in this project. 
+
+#reading in the datasets that will be used in this project.
 
 ```{r}
-air_pollution_us <- read.csv("data/pollution_us_2000_2016.csv")
+countries_code <- read_csv("data/countries.csv.xls")
+```
+```{r}
+world_countries <- read_csv("data/World_Countries_(Generalized).csv")
+```
+```{r}
+world_countries <- world_countries %>%
+  select(-c("FID", "ISO", "COUNTRYAFF","AFF_ISO"))
+world_countries
+```
+```{r}
+colnames(world_countries) <- c("country", "length", "area")
+world_countries
+```
+
+```{r}
+countries_code
+```
+```{r}
+countries_code <- countries_code%>%
+  select(-c("country"))
+countries_code 
+```
+
+#Changing the column names so this dataframe can be merge to the others. 
+```{r}
+colnames(countries_code) <- c("latitude", "longitude", "country")
+countries_code
 ```
 
 ```{r}
@@ -27,7 +57,6 @@ air_pollution_global <- read.csv("data/data.csv")
 
 ```{r}
 population <- read_excel("data/aqdh-country-trends-major-air-pollutants-2003-2018.xlsx", sheet = "Population (GPWv4.11)" )
-NOx_Population <- read_excel("data/aqdh-country-trends-major-air-pollutants-2003-2018.xlsx", sheet = "NOx Population-Weighted (ppm)")
 PM_Pop <- read_excel("data/aqdh-country-trends-major-air-pollutants-2003-2018.xlsx", sheet = "PM Pop.-Weighted (kg m^-3)")
 ```
 
@@ -36,11 +65,6 @@ PM_Pop <- read_excel("data/aqdh-country-trends-major-air-pollutants-2003-2018.xl
 ```{r}
 population <- population %>% filter(!duplicated(.))
 population = subset(population, select = -c(code))
-```
-
-```{r}
-NOx_Population  <- NOx_Population %>% filter(!duplicated(.))
-NOx_Population  = subset(NOx_Population, select = -c(code))
 ```
 
 ```{r}
@@ -58,14 +82,6 @@ population <- population%>%
 ```
 
 ```{r}
-NOx_Population <- NOx_Population%>%
-  pivot_longer(cols = c('2003', '2004', '2005', '2006', '2007', '2008', '2009', '2010', '2011', '2012', '2013', '2014', '2015', '2016', '2017', '2018'),
-               names_to = 'year',
-               values_to = 'nox')
-
-```
-
-```{r}
 PM_Pop <- PM_Pop%>%
   pivot_longer(cols = c('2003', '2004', '2005', '2006', '2007', '2008', '2009', '2010', '2011', '2012', '2013', '2014', '2015', '2016', '2017', '2018'),
                names_to = 'year',
@@ -77,49 +93,55 @@ PM_Pop <- PM_Pop%>%
 #Merging the datasets into one dataframe. 
 ```{r}
 all_population <- population %>%
-  full_join(NOx_Population, by = c("iso", "country", "year"))%>%
   full_join(PM_Pop, by = c("iso","country", "year"))
+```
+
+
+Top 5 countries. 
+```{r}
+top_countries <- all_population %>%                                          
+  arrange(desc(PM)) %>% 
+  group_by(year) %>%
+  slice(1:5)
+top_countries
+```
+```{r}
+ggplot(top_countries, aes(x=country, y=PM)) +
+    geom_bar(stat="identity", fill="#f68060", alpha=.6, width=.4) +
+    scale_y_continuous(labels = scales::comma)+
+    coord_flip() +
+    xlab("") +
+    theme_bw()
+```
+
+#PM particles per population
+```{r}
+all_population <- all_population %>% 
+  mutate(pop_per100 = as.numeric(format(round(all_population$population/(all_population$PM/100000),1), nsmall=1)))
+
 all_population
 ```
-#Top 5 countries with the highest levels of NOX.
+
+
 ```{r}
-top_nox <- all_population %>%      
-  arrange(nox) %>% 
-  group_by(year) %>%
-  slice(1:5)
-top_nox
-```
-# Plot the findings. 
-```{r}
-ggplot(top_nox, aes(year, nox, colour = country)) + 
-  geom_point()
-```
-#Top 5 countries with PM. 
-```{r}
-top_pm <- all_population %>%      
-  arrange(PM) %>% 
-  group_by(year) %>%
-  slice(1:5)
-top_pm
-```
-#plot the findings. 
-```{r}
-ggplot(top_pm, aes(year, PM, colour = country)) + 
-  geom_point()
-```
-#Multilinear regression to identify the relationship between the data.
-```{r}
-population_model <- lm(population ~ nox + PM, data = all_population)
-summary(population_model)
+merged_population <- merge(countries_code, all_population, by =  "country")
+merged_population 
 ```
 
-#Fitting the log odds to have a better understanding of the relationship between variables.  
+#linear model
 ```{r}
-log_population <- lm(log(population) ~ nox + PM, data = all_population)
-summary(log_population)
+Pop_linear_model <- lm(pop_per100 ~ PM, data = all_population)
+summary(Pop_linear_model)
 ```
 
-##Global data comparing countries with the highest deaths caused by PM. 
+#Log Linear model, and plot. 
+
+```{r}
+log_pop <- lm(pop_per100 ~ log(PM), data = all_population)
+summary(log_pop)
+```
+
+**Global data comparing countries with the highest deaths caused by PM.** 
 
 #Dropping extra information that is not needed.
 ```{r}
@@ -141,7 +163,6 @@ air_pollution_filtered_gbl <- air_pollution_filtered_gbl%>%
   transmute(
     continent = ParentLocation,
     country = Location,
-    year = Period,
     sex = Dim1, 
     cause_of_death = Dim2,
     death_rates = FactValueNumeric
@@ -159,17 +180,12 @@ air_pollution_filtered_gbl <- air_pollution_filtered_gbl%>%
 
 
 #cheching the type of death causes in the dataframe
-
 ```{r}
 air_pollution_filtered_gbl%>%
-  count(cause_of_death, continent)
+  count(cause_of_death, continent)%>%
+  group_by()
   
 ```
-
-```{r}
-summary(air_pollution_filtered_gbl[ , c('death_rates')])
-```
-
 
 #Top continents with the most deaths caused by air pollution.
 ```{r}
@@ -180,15 +196,17 @@ top_continent <- air_pollution_filtered_gbl %>%
   slice(1:5)
 top_continent
 ```
- 
-```{r}
-library(gapminder)
-top_continent_plot <- top_continent %>% filter(year=="2019") %>% dplyr::select(-year)
 
-top_continent_plot%>%
+
+```{r}
+
+library(gapminder)
+
+top_continent_plot <- top_continent %>% 
   arrange(desc(death_rates)) %>%
    group_by(continent) %>%
   ggplot(aes(x=continent, y=cause_of_death, size=death_rates, fill=continent)) +
+  scale_size_continuous(labels = scales::comma) +
   theme(axis.text.x=element_text(color = "black", size=8, angle=30, vjust=.8, hjust=0.8))+
     geom_point(alpha=0.5, shape=21, color="black") +
     scale_size(range = c(.1, 15), name="Death Rates per Continent")+
@@ -196,47 +214,108 @@ top_continent_plot%>%
     xlab("Death rates per continent") +
     theme(legend.position = "right")
 
-
+top_continent_plot
 ```
 
 ```{r}
 top_country_dr <- air_pollution_filtered_gbl %>%                                     
   # Top N highest values by group
   arrange(desc(death_rates))%>% 
-  group_by(country) %>%
+  group_by() %>%
   slice(1:5)
 
 top_country_dr
 ``` 
- 
+ #deaths per 100.000
 ```{r}
-top_country_plot <- top_continent %>% filter(year=="2019") %>% dplyr::select(-year)
 
-top_continent_plot%>%
+top_country_plot <- top_continent %>% 
   arrange(desc(death_rates)) %>%
    group_by(country) %>%
   ggplot(aes(x=cause_of_death, y=country, size=death_rates, fill=country)) +
-  theme(axis.text.x=element_text(color = "black", size=8, angle=30, vjust=.9, hjust=0.8))+
+  theme(axis.text.x=element_text(color = "black", size=10, angle=30, vjust=.9, hjust=0.8))+
     geom_point(alpha=0.5, shape=21, color="black") +
     scale_size(range = c(.1, 15), name="Death Rates per Continent")+
    ylab("cause of death") +
     xlab("Death rates per country") +
-    theme(legend.position = "right")
-
-
+    theme(legend.position = "right",
+          legend.title = element_text(colour = "black", size = 8, face = "bold"),
+          legend.text = element_text(colour = "black", size = 8),
+          legend.key = element_blank(),
+          legend.key.size = unit(0.6, "cm"))
+    
+top_country_plot
 ``` 
-#Statistical model. 
 ```{r}
-model_gbl <- lm(death_rates ~ continent, data= air_pollution_filtered_gbl)
-summary(model_gbl)
+global_pop <- lm(death_rates ~ continent, data = air_pollution_filtered_gbl)
+summary(global_pop)
+```
+```{r}
+ggplot(global_pop, aes(x = continent, y = death_rates)) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red")
+```
+#Attaching population data to death rates. 
+```{r}
+merged_global <- merge(air_pollution_filtered_gbl, merged_population , by = "country")
+merged_global
+```
+```{r}
+global_per100 <- merged_global%>% 
+  mutate(death_per100 = as.numeric(format(round(merged_global$death_rates/(merged_global$population/100000),1), nsmall=1)))
+global_per100
+```
+```{r}
+death_sum = sum(merged_global$death_rates)
+death_sum
 ```
 
-##The following dataset presents the levels of air pollutants in the USA. 
 ```{r}
-air_pollution_us 
+global_model<- lm(death_per100 ~ pop_per100, data = global_per100)
+summary(global_pop)
 ```
+
+#death rates as my target. Check the change over the years
 ```{r}
-air_pollution_us[!duplicated(air_pollution_us$Site.Num), ]
+global_log <- lm(death_rates ~ PM, data = merged_global) 
+summary(global_log)
 ```
+
+#Merging datasets
+```{r}
+global <- merge(merged_global, world_countries, by = "country")
+global
+```
+
+
+#converting to sf
+```{r}
+sf_global <- st_as_sf(global, coords = c("longitude", "latitude"), remove = FALSE)
+sf_global
+```
+
+#Plotting a map
+```{r}
+bins = c(0,1,10,50,100,500)
+
+pm_pal <- colorBin("Oranges", domain = global, bins = bins, na.color = "transparent")
+plot_map <-  
+
+pm_map <- leaflet() %>%
+  addTiles()%>%
+  addLayersControl(
+      position = "bottomright",
+      overlayGroups = c("PM", "death_rates"),
+    options = layersControlOptions(collapsed = FALSE)) %>% 
+   addProviderTiles(providers$CartoDB.Positron) %>%
+  fitBounds(-100,-50,80,80) %>%
+  addLegend("bottomright", pal = pm_pal, values = global$pop_per100,
+            title = "<small>Particulate Matter per 100,000</small>")
+  
+pm_map
+
+```
+
+
 
 
