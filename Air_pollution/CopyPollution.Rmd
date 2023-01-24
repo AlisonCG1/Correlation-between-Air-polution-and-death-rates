@@ -1,0 +1,217 @@
+```{r}
+library(gapminder)
+library(tidyverse)
+library(sf)
+library(ggplot2)
+library(dplyr)
+library(readxl)
+library(hrbrthemes)
+library(viridis)
+library(forcats)
+library(data.table)
+library(scales)
+library(leaflet)
+library(geojsonio)
+library(RColorBrewer)
+```
+
+
+
+```{r}
+global_pollution <- readRDS("data/global_pollution.rds")
+global_pollution
+```
+
+```{r}
+world_countries <- st_read("../data/World_Countries_(Generalized)/World_Countries__Generalized_.shp")%>%
+  st_transform('+proj=longlat +datum=WGS84')
+```
+
+```{r}
+world_country <- merge(world_countries, global_pollution, by.y= "Country", by.x ="COUNTRY")
+world_country
+```
+
+```{r}
+world_country
+```
+
+
+```{r}
+country_plot <- global_pollution%>%
+  slice_max(Country, n=50)%>%
+  group_by(Country, Cause)%>%
+  summarize(Rate = weighted.mean(Rate, population))%>%
+  
+ggplot(aes(x=Country, y=Cause, size=Rate, fill=Country)) +
+  theme(axis.text.x=element_text(color = "black", size=10, angle=30, vjust=.9, hjust=0.8))+
+    geom_point(alpha=0.5, shape=21, color="black") +
+    scale_size(range = c(.1, 15), name="Death Rates per Continent")+
+   ylab("cause of death") +
+    xlab("Continent") +
+    theme(legend.position = "right",
+          legend.title = element_text(colour = "black", size = 5, face = "bold"),
+          legend.text = element_text(colour = "black", size = 5),
+          legend.key = element_blank(),
+          legend.key.size = unit(0.6, "cm"))
+    
+country_plot
+```
+
+
+
+```{r}
+scatter <- global_pollution%>%
+  
+   filter(Cause == "Total")%>%
+  mutate(text = paste( "Country: ", Country, "\nPopulation: ", population, "\nDeath rates: ", Rate, PM, sep="")) %>%
+  
+  
+  # Classic ggplot
+  ggplot( aes(x=PM, y=Rate, size = population, color = continent, text=text)) +
+    geom_point(alpha=0.7) +
+    scale_size(range = c(2, 8), name="Population") +
+    ylab("Particulate matter") +
+    xlab("Death rates")+
+    scale_color_viridis(discrete=TRUE, guide=FALSE) +
+    theme_ipsum() +
+    theme(legend.position="right")
+
+
+ #turn ggplot interactive with plotly
+# scatter <- ggplotly(scatter, tooltip="text")
+ scatter
+```
+
+```{r}
+unique(global_pollution$Cause)
+```
+
+```{r}
+Total_country <- world_country%>%
+  filter(Cause == "Total")
+
+labels <- paste(
+ "Country: ", Total_country$COUNTRYy,"<br/>",
+  "Death Rates: ", Total_country$Rate, "<br/>"
+)%>%
+  lapply(htmltools::HTML)
+
+labelOptions = labelOptions(
+                style = list("font-weight" = "normal", padding = "3px 8px", "color" = ~PM),
+                textsize = "15px", direction = "auto")
+```
+
+```{r}
+stroke <- world_country%>%
+   filter(Cause == "Stroke")
+  
+s_labels <- paste(
+ "Country: ", stroke$COUNTRY,"<br/>",
+  "Death Rates: ", stroke$Rate, "<br/>"
+)%>%
+  lapply(htmltools::HTML)
+
+```
+
+```{r}
+heart_disease <- world_country%>%
+   filter(Cause== "Ischaemic heart disease")
+
+
+h_labels <- paste(
+ "Country: ", heart_disease$COUNTRY,"<br/>",
+  "Death Rates: ", heart_disease$Rate, "<br/>"
+)%>%
+  lapply(htmltools::HTML)
+```
+
+```{r}
+pulmonary_disease <- world_country%>%
+   filter(Cause == "Chronic obstructive pulmonary disease")
+
+p_labels <- paste(
+ "Country: ", pulmonary_disease$COUNTRY,"<br/>",
+  "Death Rates: ", pulmonary_disease$Rate, "<br/>"
+)%>%
+  lapply(htmltools::HTML)
+```
+
+```{r}
+lung_cancers <- world_country%>%
+   filter(Cause == "Trachea, bronchus, lung cancers")
+
+l_labels <- paste(
+ "Country: ", lung_cancers$COUNTRY,"<br/>",
+  "Death Rates: ", lung_cancers$Rate, "<br/>"
+)%>%
+  lapply(htmltools::HTML)
+
+```
+
+```{r}
+respiratory_infections <- world_country%>%
+   filter(Cause == "Lower respiratory infections ")
+
+r_labels <- paste(
+ "Country: ", respiratory_infections$COUNTRY,"<br/>",
+  "Death Rates: ", respiratory_infections$Rates, "<br/>"
+)%>%
+  lapply(htmltools::HTML)
+
+```
+
+#Seeting colors for each death cause
+```{r}
+country = "#cc4c02"
+c_stroke = "#662506"
+c_heart_disease = "#045a8d"
+c_pulmonary_disease = "#4d004b"
+c_lung_cancers = "#016c59"
+c_respiratory_infections = "#FFFFB3"
+```
+
+```{r}
+pal1 <- colorNumeric("Blues", domain = NULL, na.color = "transparent")
+Total_country$death_rates_hex <- pal1(Total_country$Rate)
+
+mymap <- leaflet()%>%
+   addProviderTiles(providers$CartoDB.Positron)%>%
+    addLayersControl(
+   position = "bottomright",
+   overlayGroups = c("Total", "stroke", "heart_disease", "pulmonary_disease", "lung_cancers", "respiratory_infections"),
+    options = layersControlOptions(collapsed = FALSE))%>% 
+
+  
+  
+   addLegend("bottomright", pal = pal1, values = Total_country$Rate,
+            title = "<small>Death rates per 100,000</small>")%>%
+  
+  
+   addPolygons(
+     data = Total_country,
+     color = "black",
+     weight = 0.8,
+     fillColor = ~death_rates_hex,
+     fillOpacity = 0.8,
+     smoothFactor = 0.2)%>%
+  
+   addCircles(data = Total_country, lat = ~ latitude, lng = ~ longitude, weight = 5, radius = ~PM, label = labels, fillOpacity = 0.2, labelOptions = labelOptions, color = country) %>%
+  
+addCircles(data = stroke, lat = ~ latitude, lng = ~ longitude, weight = 5, radius = ~PM, label = s_labels, fillOpacity = 0.2, color = ~c_stroke, labelOptions = labelOptions)%>%
+
+addCircles(data = heart_disease, lat = ~ latitude, lng = ~ longitude, weight = 5, radius = ~PM, label = h_labels, fillOpacity = 0.2, color = ~c_heart_disease, labelOptions = labelOptions)%>%
+
+addCircles(data = pulmonary_disease, lat = ~ latitude, lng = ~ longitude, weight = 5, radius = ~PM, label = p_labels, fillOpacity = 0.2, color = ~c_pulmonary_disease, labelOptions = labelOptions)%>%
+  
+  addCircles(data = lung_cancers, lat = ~ latitude, lng = ~ longitude, weight = 5, radius = ~PM, label = l_labels, fillOpacity = 0.2, color = ~c_lung_cancers, labelOptions = labelOptions)%>%
+  
+  addCircles(data = respiratory_infections, lat = ~ latitude, lng = ~ longitude, weight = 5, radius = ~PM, label = r_labels, fillOpacity = 0.2, color = ~c_respiratory_infections, labelOptions = labelOptions)
+  
+mymap
+
+
+
+```
+
+
